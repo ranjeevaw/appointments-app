@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">English Dhamma Organisation - Appointments</string>
+    <string name="title_activity_main">English Dhamma Organisation - Appointments</string>
+    <string name="package_name">org.englishdhamma.apptcalendar</string>
+    <string name="custom_url_scheme">org.englishdhamma.apptcalendar</string>
+</resources>
