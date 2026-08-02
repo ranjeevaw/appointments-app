@@ -5,5 +5,5 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   base: mode === "mobile"
     ? "/"
-    : "/englishdhammaorganisation/",
+    : "/appointments-app",
 }));
