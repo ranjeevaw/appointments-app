@@ -9,6 +9,7 @@ import AdminLogin from "./AdminLogin";
 import ProtectedRoute from "./ProtectedRoute";
 import BookingView from "./BookingView";
 import CancelledAppointments from "./CancelledAppointments";
+import PaymentReconciliation from "./PaymentReconciliation";
 
 const Page = ({title, children}) => (
   <div className="page">
@@ -88,6 +89,14 @@ const sendContactEmail = async (e) => {
     element={
             <AppointmentNew />
     }
+/>
+<Route
+  path="/admin/payment-reconciliation"
+  element={
+    <ProtectedRoute>
+      <PaymentReconciliation />
+    </ProtectedRoute>
+  }
 />
 <Route
     path="/admin/delete/:id"
