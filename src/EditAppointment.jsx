@@ -441,6 +441,30 @@ const completePaidAppointment = async () => {
     return;
   }
 
+const verifyPaymentResponse = await fetch(
+  "https://us-central1-englishdhammaorg.cloudfunctions.net/verifyPaymentForAppointment" +
+    `?session_id=${encodeURIComponent(paymentSessionId)}`
+);
+
+const verifiedPayment = await verifyPaymentResponse.json();
+
+if (!verifyPaymentResponse.ok) {
+  throw new Error(
+    verifiedPayment.error ||
+      "Unable to verify your payment."
+  );
+}
+
+if (
+  !verifiedPayment.paymentId ||
+  !verifiedPayment.paymentSessionId ||
+  typeof verifiedPayment.paymentAmount !== "number"
+) {
+  throw new Error(
+    "Invalid payment verification information."
+  );
+}
+
   const savedAppointment = sessionStorage.getItem(
     "pendingAppointment"
   );
@@ -638,9 +662,9 @@ if (!paymentSnapshot.empty) {
       created: new Date(),
       updated: new Date(),
 
-      paymentId,
-      paymentSessionId,
-      paymentAmount: Number(paymentAmount),
+        paymentId: verifiedPayment.paymentId,
+        paymentSessionId: verifiedPayment.paymentSessionId,
+        paymentAmount: verifiedPayment.paymentAmount,
     });
 
 sessionStorage.setItem(
