@@ -41,6 +41,9 @@ useEffect(() => {
 }, [authLoading, isAdmin, isNew, navigate]);
 
   const [searchParams] = useSearchParams();
+const paymentId = searchParams.get("paymentId");
+const paymentSessionId = searchParams.get("paymentSessionId");
+const paymentAmount = searchParams.get("amount");
 
 const [error, setError] = useState("");
   //const isNew = !id;
@@ -77,14 +80,82 @@ const purposeTimeMap = {
    "Invitations for පිරිත් and බණ": "",
 };
 
-  useEffect(() => {
-    if (isNew) {
+useEffect(() => {
+  if (!isNew) {
+    loadAppointment();
+    return;
+  }
+
+  const hasPayment =
+    paymentId &&
+    paymentSessionId &&
+    paymentAmount;
+
+  if (hasPayment) {
+    const savedAppointment =
+      sessionStorage.getItem("pendingAppointment");
+
+    if (!savedAppointment) {
+      setError(
+        "Your appointment details could not be restored."
+      );
       setLoading(false);
       return;
     }
 
-    loadAppointment();
-  }, [id]);
+    try {
+      const parsedAppointment =
+        JSON.parse(savedAppointment);
+
+      setAppointment(parsedAppointment);
+    } catch (err) {
+      console.error(
+        "Failed to restore pending appointment:",
+        err
+      );
+
+      setError(
+        "Unable to restore your appointment details."
+      );
+      setLoading(false);
+    }
+
+    setLoading(false);
+  } else {
+    setLoading(false);
+  }
+}, [
+  id,
+  isNew,
+  paymentId,
+  paymentSessionId,
+  paymentAmount,
+]);
+
+useEffect(() => {
+  if (
+    !isNew ||
+    !paymentId ||
+    !paymentSessionId ||
+    !paymentAmount
+  ) {
+    return;
+  }
+
+  const completedKey =
+    `paidAppointmentCompleted_${paymentSessionId}`;
+
+  if (sessionStorage.getItem(completedKey)) {
+    return;
+  }
+
+  completePaidAppointment();
+}, [
+  isNew,
+  paymentId,
+  paymentSessionId,
+  paymentAmount,
+]);
 
 const loadAppointment = async () => {
   try {
@@ -365,6 +436,289 @@ sendAppointmentEmail("Updated");
   }
 };
 
+const completePaidAppointment = async () => {
+  if (!paymentId || !paymentSessionId || !paymentAmount) {
+    return;
+  }
+
+  const savedAppointment = sessionStorage.getItem(
+    "pendingAppointment"
+  );
+
+  if (!savedAppointment) {
+    setError(
+      "Your appointment details could not be restored."
+    );
+    return;
+  }
+
+  try {
+    setSaving(true);
+    setError("");
+
+    const parsedAppointment = JSON.parse(savedAppointment);
+
+    // Validate the restored appointment details
+    if (!parsedAppointment.name?.trim()) {
+      throw new Error("Name is required.");
+    }
+
+    if (!parsedAppointment.purpose?.trim()) {
+      throw new Error("Purpose is required.");
+    }
+
+    if (!parsedAppointment.contact_number?.trim()) {
+      throw new Error("Contact number is required.");
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(parsedAppointment.email || "")) {
+      throw new Error("Please enter a valid email address.");
+    }
+
+    if (!parsedAppointment.address?.trim()) {
+      throw new Error("Address is required.");
+    }
+
+    if (!parsedAppointment.details?.trim()) {
+      throw new Error(
+        "Please provide details of the alms offering and merit transfer intentions."
+      );
+    }
+
+    // Make sure the appointment is still available
+    const q = query(
+      collection(db, "appointments"),
+      where("apt_date", "==", parsedAppointment.apt_date)
+    );
+
+    const snapshot = await getDocs(q);
+
+    const existingAppointments = snapshot.docs.filter(
+      (docSnap) => {
+        const data = docSnap.data();
+        return data.deleted !== true;
+      }
+    );
+
+    // One Morning/Lunch/Evening Alms per day
+    const isAlms =
+      parsedAppointment.purpose ===
+        "Morning Alms - හීල් දානය" ||
+      parsedAppointment.purpose ===
+        "Lunch Alms - දවල් දානය" ||
+      parsedAppointment.purpose ===
+        "Evening Alms - ගිලන්පස";
+
+    if (isAlms) {
+      const samePurposeExists =
+        existingAppointments.some(
+          (docSnap) =>
+            docSnap.data().purpose ===
+            parsedAppointment.purpose
+        );
+
+      if (samePurposeExists) {
+        throw new Error(
+          `${parsedAppointment.purpose} has already been booked for ${parsedAppointment.apt_date}.`
+        );
+      }
+    }
+
+    // Check booking time clash
+    if (parsedAppointment.apt_time) {
+      const toMinutes = (time) => {
+        const [h, m] = time.split(":").map(Number);
+        return h * 60 + m;
+      };
+
+      const getBookingWindow = (
+        purpose,
+        time,
+        duration = 30
+      ) => {
+        switch (purpose) {
+          case "Morning Alms - හීල් දානය":
+            return {
+              start: toMinutes("06:30"),
+              end: toMinutes("07:30"),
+            };
+
+          case "Lunch Alms - දවල් දානය":
+            return {
+              start: toMinutes("11:30"),
+              end: toMinutes("12:30"),
+            };
+
+          case "Evening Alms - ගිලන්පස":
+            return {
+              start: toMinutes("17:30"),
+              end: toMinutes("18:30"),
+            };
+
+          default: {
+            const start = toMinutes(time);
+
+            return {
+              start,
+              end: start + duration,
+            };
+          }
+        }
+      };
+
+      const newWindow = getBookingWindow(
+        parsedAppointment.purpose,
+        parsedAppointment.apt_time,
+        parsedAppointment.duration
+      );
+
+      const BUFFER = 30;
+
+      const clash = existingAppointments.find(
+        (docSnap) => {
+          const data = docSnap.data();
+
+          if (!data.apt_time) {
+            return false;
+          }
+
+          const existingWindow =
+            getBookingWindow(
+              data.purpose,
+              data.apt_time,
+              data.duration
+            );
+
+          return (
+            newWindow.start <
+              existingWindow.end + BUFFER &&
+            newWindow.end >
+              existingWindow.start - BUFFER
+          );
+        }
+      );
+
+      if (clash) {
+        throw new Error(
+          `This booking clashes with an existing ${clash.data().purpose} scheduled at ${clash.data().apt_time}. Please choose another time.`
+        );
+      }
+    }
+
+// Prevent the same Stripe payment from creating
+// more than one appointment.
+const paymentQuery = query(
+  collection(db, "appointments"),
+  where("paymentSessionId", "==", paymentSessionId)
+);
+
+const paymentSnapshot = await getDocs(paymentQuery);
+
+if (!paymentSnapshot.empty) {
+  sessionStorage.removeItem("pendingAppointment");
+
+  alert(
+    "This payment has already been used for an appointment."
+  );
+
+  navigate("/alms-calendar");
+  return;
+}
+
+    // Create the appointment only after successful payment
+    await addDoc(collection(db, "appointments"), {
+      ...parsedAppointment,
+
+      deleted: false,
+      deletedAt: null,
+      deletedBy: null,
+
+      created: new Date(),
+      updated: new Date(),
+
+      paymentId,
+      paymentSessionId,
+      paymentAmount: Number(paymentAmount),
+    });
+
+sessionStorage.setItem(
+  `paidAppointmentCompleted_${paymentSessionId}`,
+  "true"
+);
+
+    // Remove temporary appointment data
+    sessionStorage.removeItem("pendingAppointment");
+
+    // Email customer
+    await emailjs.send(
+      "service_xtf9mt7",
+      "template_ultwh8g",
+      {
+        action: "Created",
+        name: parsedAppointment.name,
+        email: parsedAppointment.email,
+        purpose: parsedAppointment.purpose,
+        apt_date: parsedAppointment.apt_date,
+        apt_time: parsedAppointment.apt_time,
+        address: parsedAppointment.address,
+        contact_number:
+          parsedAppointment.contact_number,
+        details: parsedAppointment.details,
+      },
+      "8G68XWPnW2CkhVGMW"
+    );
+
+    alert(
+      "Payment successful and appointment created successfully."
+    );
+
+    navigate("/alms-calendar");
+  } catch (err) {
+    console.error(
+      "Failed to create paid appointment:",
+      err
+    );
+
+    setError(
+      err.message ||
+        "Payment was successful, but we could not create the appointment. Please contact us."
+    );
+  } finally {
+    setSaving(false);
+  }
+};
+
+const continueToPayment = async () => {
+  const validationError = validateRequiredFields();
+
+  if (validationError) {
+    setError(validationError);
+    return;
+  }
+
+  setError("");
+
+  const validation = await validateAppointment();
+
+  if (!validation.valid) {
+    setError(validation.message);
+    return;
+  }
+
+  setError("");
+
+  // Temporarily save appointment details while customer completes payment
+  sessionStorage.setItem(
+    "pendingAppointment",
+    JSON.stringify(appointment)
+  );
+
+  window.location.href =
+    "https://ranjeevaw.github.io/payment-app";
+};
+
   const deleteAppointment = async () => {
     const confirmed = window.confirm(
       "Are you sure you want to delete this appointment?"
@@ -639,12 +993,19 @@ onChange={(e) => {
 
 
       <div style={{ display: "flex", gap: 10 }}>
-        <button
-            onClick={saveAppointment}
-            disabled={saving}
-        >
-            {saving ? "Creating..." : "Save"}
-        </button>
+
+        {isNew ? (
+          <button onClick={continueToPayment}>
+            Continue to Payment
+          </button>
+        ) : (
+          <button
+              onClick={saveAppointment}
+              disabled={saving}
+          >
+              {saving ? "Creating..." : "Save"}
+          </button>
+        )}
 
         <button onClick={() => navigate("/alms-calendar")}>
           Cancel
