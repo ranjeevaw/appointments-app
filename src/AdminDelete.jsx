@@ -17,9 +17,21 @@ export default function AdminDelete() {
 const [error, setError] = useState("");
 
 useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
     if (!user) {
-      navigate("/admin");
+      navigate("/admin-login");
+      return;
+    }
+
+    try {
+      const tokenResult = await user.getIdTokenResult(true);
+
+      if (tokenResult.claims.admin !== true) {
+        navigate("/alms-calendar");
+      }
+    } catch (error) {
+      console.error("Error checking admin claim:", error);
+      navigate("/alms-calendar");
     }
   });
 
