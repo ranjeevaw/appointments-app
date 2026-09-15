@@ -383,22 +383,22 @@ if (!emailRegex.test(appointment.email)) {
   return null;
 };
 
-const sendAppointmentEmail = async (action) => {
+const sendAppointmentEmail = async (action, appointmentData = appointment) => {
   try {
       setSaving(true);
     await emailjs.send(
       "service_xtf9mt7",
       "template_ultwh8g",
       {
-        action,
-        name: appointment.name,
-        email: appointment.email,
-        purpose: appointment.purpose,
-        apt_date: appointment.apt_date,
-        apt_time: appointment.apt_time,
-        address: appointment.address,
-        contact_number: appointment.contact_number,
-        details: appointment.details,
+  action,
+  name: appointmentData.name,
+  email: appointmentData.email,
+  purpose: appointmentData.purpose,
+  apt_date: appointmentData.apt_date,
+  apt_time: appointmentData.apt_time,
+  address: appointmentData.address,
+  contact_number: appointmentData.contact_number,
+  details: appointmentData.details,
       },
       "8G68XWPnW2CkhVGMW"
     );
@@ -530,7 +530,7 @@ const completePaidAppointment = async () => {
     alert("Payment successful and appointment created successfully.");
 
     // Send email in background
-    sendAppointmentEmail("Created");
+    sendAppointmentEmail("Created", parsedAppointment);
 
     navigate("/alms-calendar");
   } catch (err) {
